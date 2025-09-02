@@ -100,7 +100,8 @@ class Annotator(QMainWindow):
                 display_name = file.replace("✓ ", "")
                 item = QListWidgetItem(display_name)
                 # Add checkmark if file has been processed
-                if file in self.processed_files:
+                unannotated_filename = f"{display_name.split(',')[0]},{display_name.split(',')[1]},{display_name.split(',')[2]}.dng"
+                if unannotated_filename in self.processed_files:
                     item.setText(f"✓ {display_name}")
                 self.file_list.addItem(item)
                 num_files += 1
@@ -152,7 +153,7 @@ class Annotator(QMainWindow):
             # After dialog is closed, check if it was accepted
             if result == QDialog.Accepted:
                 # Add file to processed set
-                self.processed_files.add(clean_filename)
+                self.processed_files.add(unannotated_filename)
 
                 red_gain = dialog.colour_gains[0]
                 blue_gain = dialog.colour_gains[1]
@@ -162,7 +163,7 @@ class Annotator(QMainWindow):
                 new_image_path = os.path.join(self.input, new_filename)
 
                 # Rename the original file to the new name
-                #os.rename(image_path, new_image_path)
+                os.rename(image_path, new_image_path)
                 print(f"Renamed {image_path} to {new_image_path}")
 
                 self.load_files()

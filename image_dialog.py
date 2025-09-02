@@ -106,6 +106,30 @@ class ImageDialog(QDialog):
 
         layout.addLayout(temp_layout)
 
+        # Add transverse slider (below temperature slider)
+        transverse_layout = QHBoxLayout()
+        transverse_layout.setContentsMargins(20, 0, 0, 0)
+        transverse_layout.addWidget(QLabel("Purple/Green:"))
+
+        self.transverse_slider = QSlider(Qt.Horizontal)
+        self.transverse_slider.setMinimum(-25)
+        self.transverse_slider.setMaximum(25)
+        self.transverse_slider.setValue(0)
+        self.transverse_slider.setTickPosition(QSlider.TicksBelow)
+        self.transverse_slider.setTickInterval(5)
+        self.transverse_slider.valueChanged.connect(self.on_transverse_slider_moved)
+        self.transverse_slider.sliderReleased.connect(self.on_transverse_slider_changed)
+
+        self.transverse_value_label = QLabel("0.00")
+        self.transverse_value_label.setFixedWidth(80)
+        self.transverse_value_label.setStyleSheet("background-color: white; padding: 5px; border: 1px solid #ccc;")
+
+        transverse_layout.addWidget(self.transverse_slider)
+        transverse_layout.addWidget(self.transverse_value_label)
+        transverse_layout.addStretch()
+
+        layout.addLayout(transverse_layout)
+
         # Add Done button in a centered layout
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(10, 10, 10, 10)  # Add some margin around the button
@@ -175,7 +199,10 @@ class ImageDialog(QDialog):
 
     def update_colour_temp(self):
         # Set the colour temp from the gains, but we clamp it to our allowable range.
-        self.colour_temp = round(self.dng.estimate_colour_temp(self.colour_gains), 1)
+        red_blue = (1.0 / self.colour_gains[0], 1.0 / self.colour_gains[1])
+        self.colour_temp, self.transverse_value = self.dng.tuning.colour_temp_curve.invert_with_transverse_multiple(red_blue)
+        self.transverse_slider.setValue(int(self.transverse_value * 100))
+        self.transverse_value_label.setText(f"{self.transverse_value:.3f}")
         if self.colour_temp < MIN_COLOUR_TEMP:
             self.colour_temp = MIN_COLOUR_TEMP
             colour_gains = 1.0 / self.dng.tuning.get_colour_values(MIN_COLOUR_TEMP)
@@ -198,6 +225,10 @@ class ImageDialog(QDialog):
             if hasattr(self, 'colour_temp') and self.colour_temp is not None:
                 self.temp_slider.setValue(int(self.colour_temp))
                 self.temp_label.setText(f"{self.colour_temp}K")
+
+            if hasattr(self, 'transverse_value') and self.transverse_value is not None:
+                self.transverse_slider.setValue(int(self.transverse_value * 100))
+                self.transverse_value_label.setText(f"{self.transverse_value:.3f}")
         else:
             self.r_gain_edit.setText("")
             self.b_gain_edit.setText("")
@@ -259,8 +290,9 @@ class ImageDialog(QDialog):
         QApplication.processEvents() # when the button is re-enabled, that means it's finished
 
         # Get new colour gains from the tuning
-        colour_gains = 1.0 / self.dng.tuning.get_colour_values(value)
-        self.colour_gains = (round(colour_gains[0], 3), round(colour_gains[1], 3))
+        red_blue = self.dng.tuning.get_colour_values(value)
+        red_blue = red_blue + self.transverse_value * self.dng.tuning.colour_temp_curve.transverse(value)
+        self.colour_gains = (round(1.0 / red_blue[0], 3), round(1.0 / red_blue[1], 3))
 
         # Update the gain input fields
         self.update_colour_gains_display()
@@ -276,6 +308,40 @@ class ImageDialog(QDialog):
         """Handle slider movement - just update the label, don't process the image"""
         # Update the temperature label in real-time
         self.temp_label.setText(f"{value}K")
+
+    def on_transverse_slider_changed(self):
+        """Update the transverse value label when the slider changes."""
+        value = self.transverse_slider.value()
+        self.transverse_value_label.setText(f"{value / 100:.2f}")
+        self.transverse_value = value / 100
+
+        self.image_label.selection_start = None
+        self.image_label.selection_end = None
+        self.image_label.update()
+
+        self.accept_button.setEnabled(False)
+        from PyQt5.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Get new colour gains from the tuning
+        red_blue = self.dng.tuning.get_colour_values(self.colour_temp)
+        red_blue = red_blue + self.transverse_value * self.dng.tuning.colour_temp_curve.transverse(self.colour_temp)
+        self.colour_gains = (round(1.0 / red_blue[0], 3), round(1.0 / red_blue[1], 3))
+
+        # Update the gain input fields
+        self.update_colour_gains_display()
+
+        # Redevelop the image with new values
+        self.develop_image()
+        self.update_image()
+
+        # Enable Accept button since we have valid changes
+        self.accept_button.setEnabled(True)
+
+
+    def on_transverse_slider_moved(self, value):
+        """Handle slider movement - just update the label, don't process the image"""
+        self.transverse_value_label.setText(f"{value / 100:.2f}")
 
     def show_rgb_info(self, pos):
         """Show RGB values at the given position"""
